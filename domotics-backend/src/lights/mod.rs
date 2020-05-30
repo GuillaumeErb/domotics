@@ -3,13 +3,22 @@ use rocket_contrib::json::Json;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::io::Error;
+use std::io::Write;
 use std::net::Ipv4Addr;
+use std::net::SocketAddrV4;
+use std::net::TcpStream;
 use std::net::UdpSocket;
 
 #[get("/")]
 pub fn get_all() -> Result<Json<Vec<WifiBulb>>, Error> {
     let wifi_bulbs = discover();
     wifi_bulbs.map(|ok| Json(ok.clone()))
+}
+
+#[get("/toggle")]
+pub fn toggle() -> () {
+    let address = "192.168.1.46:55443".parse::<SocketAddrV4>().unwrap();
+    toggle_bulb(&address);
 }
 
 fn discover() -> Result<Vec<WifiBulb>, Error> {
@@ -19,19 +28,15 @@ fn discover() -> Result<Vec<WifiBulb>, Error> {
     let port = 1982;
     let diagram = "M-SEARCH * HTTP/1.1\r\n MAN: \"ssdp:discover\"\r\n wifi_bulb";
 
-    let local_address = Ipv4Addr::new(0, 0, 0, 0);
-    let local_address_with_port = format!("{}:{}", local_address.to_string(), port);
+    let local_address = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), port);
+    let ssdp_multicast_address = SocketAddrV4::new(Ipv4Addr::new(239, 255, 255, 250), port);
 
-    let ssdp_multicast_address = Ipv4Addr::new(239, 255, 255, 250);
-    let ssdp_multicast_address_with_port =
-        format!("{}:{}", ssdp_multicast_address.to_string(), port);
-
-    let socket = UdpSocket::bind(local_address_with_port).unwrap();
+    let socket = UdpSocket::bind(local_address)?;
     socket.set_read_timeout(Some(Duration::new(1, 0)))?;
     socket.set_multicast_ttl_v4(12)?;
-    socket.join_multicast_v4(&ssdp_multicast_address, &local_address)?;
+    socket.join_multicast_v4(ssdp_multicast_address.ip(), local_address.ip())?;
 
-    socket.send_to(diagram.as_bytes(), ssdp_multicast_address_with_port)?;
+    socket.send_to(diagram.as_bytes(), ssdp_multicast_address)?;
 
     loop {
         let mut buf = [0; 1048576];
@@ -59,10 +64,23 @@ fn discover() -> Result<Vec<WifiBulb>, Error> {
     Ok(devices)
 }
 
+fn toggle_bulb(address: &SocketAddrV4) {
+    if let Ok(mut stream) = TcpStream::connect(address) {
+        println!("Connected to the server!");
+        let msg = format!(
+            "{{\"id\":{},\"method\":\"{}\",\"params\":[{}]}}\r\n",
+            1, "toggle", ""
+        );
+        stream.write(msg.as_bytes()).unwrap();
+    } else {
+        println!("Couldn't connect to server...");
+    }
+}
+
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct WifiBulb {
     pub id: String,
-    pub location: String,
+    pub address: SocketAddrV4,
     pub power: bool,
     pub bright: u8,
     pub rgb: u32,
@@ -70,7 +88,7 @@ pub struct WifiBulb {
 
 pub fn parse(raw_string: &str) -> Option<WifiBulb> {
     let mut id = None;
-    let mut location = None;
+    let mut address = None;
     let mut power = None;
     let mut bright = None;
     let mut rgb = None;
@@ -91,16 +109,22 @@ pub fn parse(raw_string: &str) -> Option<WifiBulb> {
         let value = splitted[1].trim();
         match name.as_str() {
             "id" => id = Some(value.to_string()),
-            "location" => location = Some(value.to_string()),
+            "location" => {
+                let address_string = value.replace("yeelight://", "");
+                address = match address_string.parse() {
+                    Ok(result) => Some(result),
+                    Err(_) => None,
+                }
+            }
             "power" => power = Some(value == "on"),
             "bright" => {
-                bright = match value.parse::<u8>() {
+                bright = match value.parse() {
                     Ok(result) => Some(result),
                     Err(_) => None,
                 }
             }
             "rgb" => {
-                rgb = match value.parse::<u32>() {
+                rgb = match value.parse() {
                     Ok(result) => Some(result),
                     Err(_) => None,
                 }
@@ -108,10 +132,10 @@ pub fn parse(raw_string: &str) -> Option<WifiBulb> {
             _ => (),
         }
     }
-    if id.is_some() && location.is_some() && power.is_some() && bright.is_some() && rgb.is_some() {
+    if id.is_some() && address.is_some() && power.is_some() && bright.is_some() && rgb.is_some() {
         Some(WifiBulb {
             id: id.unwrap(),
-            location: location.unwrap(),
+            address: address.unwrap(),
             power: power.unwrap(),
             bright: bright.unwrap(),
             rgb: rgb.unwrap(),
@@ -151,7 +175,7 @@ mod tests {
             parse(raw_response),
             Some(WifiBulb {
                 id: "0x0000000007fb008f".to_string(),
-                location: "yeelight://192.168.1.56:55443".to_string(),
+                address: SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 56), 55443),
                 power: false,
                 bright: 99u8,
                 rgb: 16444375,

@@ -8,6 +8,6 @@ mod lights;
 
 fn main() {
     rocket::ignite()
-        .mount("/lights", routes![lights::get_all])
+        .mount("/lights", routes![lights::get_all, lights::toggle])
         .launch();
 }
