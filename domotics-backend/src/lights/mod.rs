@@ -1,6 +1,9 @@
 use core::time::Duration;
+use rocket::response::status::NotFound;
+use rocket::State;
 use rocket_contrib::json::Json;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashSet;
 use std::io::Error;
 use std::io::Write;
@@ -8,18 +11,51 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
 use std::net::TcpStream;
 use std::net::UdpSocket;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 #[get("/")]
-pub fn get_all() -> Result<Json<Vec<WifiBulb>>, Error> {
+pub fn get_all(wifi_bulbs_state: State<WifiBulbs>) -> Json<Vec<WifiBulb>> {
     let wifi_bulbs = discover();
-    wifi_bulbs.map(|ok| Json(ok.clone()))
+    let mut vec_arc = wifi_bulbs_state.lock().unwrap();
+    let result = wifi_bulbs.unwrap();
+    let cloned = result.clone();
+    *vec_arc = Arc::new(result);
+    Json(cloned)
 }
 
-#[get("/toggle")]
-pub fn toggle() -> () {
-    let address = "192.168.1.46:55443".parse::<SocketAddrV4>().unwrap();
-    toggle_bulb(&address);
+#[get("/<id>")]
+pub fn get_one(
+    id: i64,
+    wifi_bulbs_state: State<WifiBulbs>,
+) -> Result<Json<WifiBulb>, NotFound<String>> {
+    let vec_arc = wifi_bulbs_state.lock().unwrap();
+    let candidates = (*vec_arc)
+        .iter()
+        .filter(|bulb| bulb.id == id)
+        .collect::<Vec<&WifiBulb>>();
+    if candidates.len() > 0 {
+        Ok(Json(candidates[0].clone()))
+    } else {
+        Err(NotFound(format!("Unknown bulb id: {}", id)))
+    }
 }
+
+#[get("/<id>/toggle")]
+pub fn toggle(id: i64, wifi_bulbs_state: State<WifiBulbs>) -> () {
+    let vec_arc = wifi_bulbs_state.lock().unwrap();
+    let candidates = (*vec_arc)
+        .iter()
+        .filter(|bulb| bulb.id == id)
+        .collect::<Vec<&WifiBulb>>();
+    if candidates.len() > 0 {
+        perform_action(&candidates[0].address, "toggle")
+    } else {
+        println!("Couldn't find the light bulb");
+    }
+}
+
+pub type WifiBulbs = Arc<Mutex<Arc<Vec<WifiBulb>>>>;
 
 fn discover() -> Result<Vec<WifiBulb>, Error> {
     let mut devices = vec![];
@@ -64,12 +100,11 @@ fn discover() -> Result<Vec<WifiBulb>, Error> {
     Ok(devices)
 }
 
-fn toggle_bulb(address: &SocketAddrV4) {
+fn perform_action(address: &SocketAddrV4, method: &str) {
     if let Ok(mut stream) = TcpStream::connect(address) {
-        println!("Connected to the server!");
         let msg = format!(
             "{{\"id\":{},\"method\":\"{}\",\"params\":[{}]}}\r\n",
-            1, "toggle", ""
+            1, method, ""
         );
         stream.write(msg.as_bytes()).unwrap();
     } else {
@@ -78,8 +113,15 @@ fn toggle_bulb(address: &SocketAddrV4) {
 }
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub struct WifiBulbCommand {
+    id: u32,
+    method: String,
+    params: String,
+}
+
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct WifiBulb {
-    pub id: String,
+    pub id: i64,
     pub address: SocketAddrV4,
     pub power: bool,
     pub bright: u8,
@@ -108,25 +150,27 @@ pub fn parse(raw_string: &str) -> Option<WifiBulb> {
         let name = splitted[0].trim().to_lowercase();
         let value = splitted[1].trim();
         match name.as_str() {
-            "id" => id = Some(value.to_string()),
+            "id" => {
+                let without_prefix = value.trim_start_matches("0x");
+                if let Ok(result) = i64::from_str_radix(without_prefix, 16) {
+                    id = Some(result);
+                }
+            }
             "location" => {
                 let address_string = value.replace("yeelight://", "");
-                address = match address_string.parse() {
-                    Ok(result) => Some(result),
-                    Err(_) => None,
+                if let Ok(result) = address_string.parse() {
+                    address = Some(result);
                 }
             }
             "power" => power = Some(value == "on"),
             "bright" => {
-                bright = match value.parse() {
-                    Ok(result) => Some(result),
-                    Err(_) => None,
+                if let Ok(result) = value.parse() {
+                    bright = Some(result);
                 }
             }
             "rgb" => {
-                rgb = match value.parse() {
-                    Ok(result) => Some(result),
-                    Err(_) => None,
+                if let Ok(result) = value.parse() {
+                    rgb = Some(result);
                 }
             }
             _ => (),
@@ -174,7 +218,7 @@ mod tests {
         assert_eq!(
             parse(raw_response),
             Some(WifiBulb {
-                id: "0x0000000007fb008f".to_string(),
+                id: 133890191,
                 address: SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 56), 55443),
                 power: false,
                 bright: 99u8,
