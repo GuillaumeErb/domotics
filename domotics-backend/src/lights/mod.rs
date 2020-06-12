@@ -1,6 +1,6 @@
 use core::time::Duration;
+use lazy_static::lazy_static;
 use rocket::response::status::NotFound;
-use rocket::State;
 use rocket_contrib::json::Json;
 use serde::Deserialize;
 use serde::Serialize;
@@ -15,9 +15,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 #[get("/")]
-pub fn get_all(wifi_bulbs_state: State<WifiBulbs>) -> Json<Vec<WifiBulb>> {
+pub fn get_all() -> Json<Vec<WifiBulb>> {
     let wifi_bulbs = discover();
-    let mut vec_arc = wifi_bulbs_state.lock().unwrap();
+    let mut vec_arc = LIGHTS_STORAGE.lock().unwrap();
     let result = wifi_bulbs.unwrap();
     let cloned = result.clone();
     *vec_arc = Arc::new(result);
@@ -25,11 +25,8 @@ pub fn get_all(wifi_bulbs_state: State<WifiBulbs>) -> Json<Vec<WifiBulb>> {
 }
 
 #[get("/<id>")]
-pub fn get_one(
-    id: i64,
-    wifi_bulbs_state: State<WifiBulbs>,
-) -> Result<Json<WifiBulb>, NotFound<String>> {
-    let vec_arc = wifi_bulbs_state.lock().unwrap();
+pub fn get_one(id: i64) -> Result<Json<WifiBulb>, NotFound<String>> {
+    let vec_arc = LIGHTS_STORAGE.lock().unwrap();
     let candidates = (*vec_arc)
         .iter()
         .filter(|bulb| bulb.id == id)
@@ -42,8 +39,8 @@ pub fn get_one(
 }
 
 #[get("/<id>/toggle")]
-pub fn toggle(id: i64, wifi_bulbs_state: State<WifiBulbs>) -> () {
-    let vec_arc = wifi_bulbs_state.lock().unwrap();
+pub fn toggle(id: i64) -> () {
+    let vec_arc = LIGHTS_STORAGE.lock().unwrap();
     let candidates = (*vec_arc)
         .iter()
         .filter(|bulb| bulb.id == id)
@@ -53,6 +50,10 @@ pub fn toggle(id: i64, wifi_bulbs_state: State<WifiBulbs>) -> () {
     } else {
         println!("Couldn't find the light bulb");
     }
+}
+
+lazy_static! {
+    static ref LIGHTS_STORAGE: WifiBulbs = Arc::new(Mutex::new(Arc::new(vec![])));
 }
 
 pub type WifiBulbs = Arc<Mutex<Arc<Vec<WifiBulb>>>>;
