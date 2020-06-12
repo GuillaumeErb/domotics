@@ -14,14 +14,19 @@ use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-#[get("/")]
-pub fn get_all() -> Json<Vec<WifiBulb>> {
-    let wifi_bulbs = discover();
-    let mut vec_arc = LIGHTS_STORAGE.lock().unwrap();
-    let result = wifi_bulbs.unwrap();
-    let cloned = result.clone();
-    *vec_arc = Arc::new(result);
-    Json(cloned)
+#[get("/?<refresh>")]
+pub fn get_all(refresh: Option<bool>) -> Json<Vec<WifiBulb>> {
+    if refresh.is_some() && refresh.unwrap() {
+        let wifi_bulbs = discover();
+        let result = wifi_bulbs.unwrap();
+        let cloned = result.clone();
+        let mut vec_arc = LIGHTS_STORAGE.lock().unwrap();
+        *vec_arc = Arc::new(result);
+        Json(cloned)
+    } else {
+        let vec_arc = LIGHTS_STORAGE.lock().unwrap();
+        Json((*vec_arc).to_vec())
+    }
 }
 
 #[get("/<id>")]

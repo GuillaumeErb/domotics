@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 rocket = "0.4.5"
 rocket_contrib = "0.4.5"
+rocket_cors = "0.5.2"
 httparse = "1.3.4"
 serde = { version = "1.0.111", features = ["derive"] }
 clokwerk = "0.3.0"
