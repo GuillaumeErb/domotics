@@ -1,6 +1,5 @@
 use core::time::Duration;
 use lazy_static::lazy_static;
-use rocket::response::status::NotFound;
 use rocket_contrib::json::Json;
 use serde::Deserialize;
 use serde::Serialize;
@@ -13,47 +12,61 @@ use std::net::TcpStream;
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::PoisonError;
 
 #[get("/?<refresh>")]
-pub fn get_all(refresh: Option<bool>) -> Json<Vec<WifiBulb>> {
-    if refresh.is_some() && refresh.unwrap() {
+pub fn get_all(refresh: Option<bool>) -> Result<Json<Vec<WifiBulb>>, Error> {
+    let force_refresh = match refresh {
+        Some(some_refresh) => some_refresh,
+        None => false,
+    };
+    if force_refresh {
         let wifi_bulbs = discover();
-        let result = wifi_bulbs.unwrap();
+        let result = wifi_bulbs?;
         let cloned = result.clone();
-        let mut vec_arc = LIGHTS_STORAGE.lock().unwrap();
+        let mut vec_arc = LIGHTS_STORAGE
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         *vec_arc = Arc::new(result);
-        Json(cloned)
+        Ok(Json(cloned))
     } else {
-        let vec_arc = LIGHTS_STORAGE.lock().unwrap();
-        Json((*vec_arc).to_vec())
+        let vec_arc = LIGHTS_STORAGE
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(Json((*vec_arc).to_vec()))
     }
 }
 
 #[get("/<id>")]
-pub fn get_one(id: i64) -> Result<Json<WifiBulb>, NotFound<String>> {
-    let vec_arc = LIGHTS_STORAGE.lock().unwrap();
+pub fn get_one(id: i64) -> Result<Option<Json<WifiBulb>>, Error> {
+    let vec_arc = LIGHTS_STORAGE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
     let candidates = (*vec_arc)
         .iter()
         .filter(|bulb| bulb.id == id)
         .collect::<Vec<&WifiBulb>>();
     if candidates.len() > 0 {
-        Ok(Json(candidates[0].clone()))
+        Ok(Some(Json(candidates[0].clone())))
     } else {
-        Err(NotFound(format!("Unknown bulb id: {}", id)))
+        Ok(None)
     }
 }
 
 #[get("/<id>/toggle")]
-pub fn toggle(id: i64) -> () {
-    let vec_arc = LIGHTS_STORAGE.lock().unwrap();
+pub fn toggle(id: i64) -> Result<Option<()>, Error> {
+    let vec_arc = LIGHTS_STORAGE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
     let candidates = (*vec_arc)
         .iter()
         .filter(|bulb| bulb.id == id)
         .collect::<Vec<&WifiBulb>>();
     if candidates.len() > 0 {
-        perform_action(&candidates[0].address, "toggle")
+        perform_action(&candidates[0].address, "toggle")?;
+        Ok(Some(()))
     } else {
-        println!("Couldn't find the light bulb");
+        Ok(None)
     }
 }
 
@@ -88,17 +101,26 @@ fn discover() -> Result<Vec<WifiBulb>, Error> {
             Ok((number_of_bytes, _)) => {
                 let filled_buf = &mut buf[..number_of_bytes];
 
-                let string_buffer = std::str::from_utf8(filled_buf).unwrap();
-                let parsed_option = parse(string_buffer);
-                for parsed in parsed_option.iter() {
-                    if device_ids.contains(&parsed.id) {
-                        continue;
+                let string_buffer_result = std::str::from_utf8(filled_buf);
+                match string_buffer_result {
+                    Ok(string_buffer) => {
+                        let parsed_option = parse(string_buffer);
+                        for parsed in parsed_option.iter() {
+                            if device_ids.contains(&parsed.id) {
+                                continue;
+                            }
+                            device_ids.insert(parsed.id.clone());
+                            devices.push(parsed.clone());
+                        }
                     }
-                    device_ids.insert(parsed.id.clone());
-                    devices.push(parsed.clone());
+                    Err(error) => {
+                        println!("Exiting discovery loop {}", error);
+                        break;
+                    }
                 }
             }
-            Err(_) => {
+            Err(error) => {
+                println!("Exiting discovery loop {}", error);
                 break;
             }
         }
@@ -106,16 +128,14 @@ fn discover() -> Result<Vec<WifiBulb>, Error> {
     Ok(devices)
 }
 
-fn perform_action(address: &SocketAddrV4, method: &str) {
-    if let Ok(mut stream) = TcpStream::connect(address) {
-        let msg = format!(
-            "{{\"id\":{},\"method\":\"{}\",\"params\":[{}]}}\r\n",
-            1, method, ""
-        );
-        stream.write(msg.as_bytes()).unwrap();
-    } else {
-        println!("Couldn't connect to server...");
-    }
+fn perform_action(address: &SocketAddrV4, method: &str) -> Result<(), Error> {
+    let mut stream = TcpStream::connect(address)?;
+    let msg = format!(
+        "{{\"id\":{},\"method\":\"{}\",\"params\":[{}]}}\r\n",
+        1, method, ""
+    );
+    stream.write(msg.as_bytes())?;
+    Ok(())
 }
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -135,11 +155,11 @@ pub struct WifiBulb {
 }
 
 pub fn parse(raw_string: &str) -> Option<WifiBulb> {
-    let mut id = None;
-    let mut address = None;
-    let mut power = None;
-    let mut bright = None;
-    let mut rgb = None;
+    let mut id_option = None;
+    let mut address_option = None;
+    let mut power_option = None;
+    let mut bright_option = None;
+    let mut rgb_option = None;
     if !raw_string.trim().starts_with("HTTP") {
         return None;
     }
@@ -159,36 +179,42 @@ pub fn parse(raw_string: &str) -> Option<WifiBulb> {
             "id" => {
                 let without_prefix = value.trim_start_matches("0x");
                 if let Ok(result) = i64::from_str_radix(without_prefix, 16) {
-                    id = Some(result);
+                    id_option = Some(result);
                 }
             }
             "location" => {
                 let address_string = value.replace("yeelight://", "");
                 if let Ok(result) = address_string.parse() {
-                    address = Some(result);
+                    address_option = Some(result);
                 }
             }
-            "power" => power = Some(value == "on"),
+            "power" => power_option = Some(value == "on"),
             "bright" => {
                 if let Ok(result) = value.parse() {
-                    bright = Some(result);
+                    bright_option = Some(result);
                 }
             }
             "rgb" => {
                 if let Ok(result) = value.parse() {
-                    rgb = Some(result);
+                    rgb_option = Some(result);
                 }
             }
             _ => (),
         }
     }
-    if id.is_some() && address.is_some() && power.is_some() && bright.is_some() && rgb.is_some() {
+    if let (Some(id), Some(address), Some(power), Some(bright), Some(rgb)) = (
+        id_option,
+        address_option,
+        power_option,
+        bright_option,
+        rgb_option,
+    ) {
         Some(WifiBulb {
-            id: id.unwrap(),
-            address: address.unwrap(),
-            power: power.unwrap(),
-            bright: bright.unwrap(),
-            rgb: rgb.unwrap(),
+            id: id,
+            address: address,
+            power: power,
+            bright: bright,
+            rgb: rgb,
         })
     } else {
         None

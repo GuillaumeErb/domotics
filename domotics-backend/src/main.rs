@@ -37,10 +37,10 @@ fn launch_scheduler() -> ScheduleHandle {
 
     let mut scheduler = Scheduler::new();
     println!("Updating light state ...");
-    lights::get_all(Some(true));
+    let _ = lights::get_all(Some(true));
     scheduler.every(20.minutes()).run(|| {
         println!("Updating light state ...");
-        lights::get_all(Some(true));
+        let _ = lights::get_all(Some(true));
     });
     scheduler.watch_thread(Duration::from_millis(100))
 }
