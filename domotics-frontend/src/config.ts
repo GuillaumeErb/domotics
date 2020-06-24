@@ -1,0 +1,1 @@
+export const BACKEND_BASE_URL: string = (process.env as any).REACT_APP_BACKEND_BASE_URL;

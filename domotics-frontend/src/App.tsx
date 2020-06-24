@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import logo from './logo.svg';
 import './App.css';
 import { toggleLight, getAllLightsAsync, Light } from './api/lightsApi';
 
@@ -18,8 +17,15 @@ function App() {
 
   return (
     <div className="App">
+      <div className="sidebar">
+        <a className="active" href="#home">Lights</a>
+        <a href="#empty">Empty</a>
+      </div>
       <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
+        <button onClick={() => {
+          getAllLightsAsync({ refresh: true }).then(lights =>
+            setLights(lights))
+        }}>Refresh</button>
         {
           lights.map(light => {
             console.log("looping through light");
@@ -27,17 +33,6 @@ function App() {
           }
           )
         }
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
       </header>
     </div >
   );
