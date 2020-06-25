@@ -9,6 +9,7 @@ use clokwerk::{Scheduler, TimeUnits};
 use rocket_cors::{AllowedHeaders, AllowedOrigins, Cors, CorsOptions};
 use std::time::Duration;
 
+mod frontend;
 mod lights;
 
 fn make_cors() -> Cors {
@@ -56,6 +57,7 @@ fn main() {
             "/lights",
             routes![lights::get_all, lights::get_one, lights::toggle],
         )
+        .mount("/", routes![frontend::index, frontend::file])
         .attach(make_cors())
         .launch();
     println!("Shutting down");
