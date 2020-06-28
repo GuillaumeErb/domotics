@@ -1,10 +1,12 @@
 use core::time::Duration;
 use lazy_static::lazy_static;
+use rocket::Data;
 use rocket_contrib::json::Json;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::io::Error;
+use std::io::Read;
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
@@ -27,7 +29,7 @@ pub fn get_all(refresh: Option<bool>) -> Result<Json<Vec<WifiBulb>>, Error> {
         let mut vec_arc = LIGHTS_STORAGE
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        *vec_arc = Arc::new(result);
+        *vec_arc = Box::new(result);
         Ok(Json(cloned))
     } else {
         let vec_arc = LIGHTS_STORAGE
@@ -63,7 +65,28 @@ pub fn toggle(id: i64) -> Result<Option<()>, Error> {
         .filter(|bulb| bulb.id == id)
         .collect::<Vec<&WifiBulb>>();
     if candidates.len() > 0 {
-        perform_action(&candidates[0].address, "toggle")?;
+        perform_action(&candidates[0].address, "toggle", "")?;
+        Ok(Some(()))
+    } else {
+        Ok(None)
+    }
+}
+
+#[put("/<id>/name", format = "application/json", data = "<name_data>")]
+pub fn set_name(id: i64, name_data: Data) -> Result<Option<()>, Error> {
+    let vec_arc = LIGHTS_STORAGE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let candidates = (*vec_arc)
+        .iter()
+        .filter(|bulb| bulb.id == id)
+        .collect::<Vec<&WifiBulb>>();
+
+    let mut name = String::new();
+    name_data.open().read_to_string(&mut name)?;
+
+    if candidates.len() > 0 {
+        perform_action(&candidates[0].address, "set_name", &format!("\"{}\"", name))?;
         Ok(Some(()))
     } else {
         Ok(None)
@@ -71,10 +94,10 @@ pub fn toggle(id: i64) -> Result<Option<()>, Error> {
 }
 
 lazy_static! {
-    static ref LIGHTS_STORAGE: WifiBulbs = Arc::new(Mutex::new(Arc::new(vec![])));
+    static ref LIGHTS_STORAGE: WifiBulbs = Arc::new(Mutex::new(Box::new(vec![])));
 }
 
-pub type WifiBulbs = Arc<Mutex<Arc<Vec<WifiBulb>>>>;
+pub type WifiBulbs = Arc<Mutex<Box<Vec<WifiBulb>>>>;
 
 fn discover() -> Result<Vec<WifiBulb>, Error> {
     let mut devices = vec![];
@@ -128,11 +151,11 @@ fn discover() -> Result<Vec<WifiBulb>, Error> {
     Ok(devices)
 }
 
-fn perform_action(address: &SocketAddrV4, method: &str) -> Result<(), Error> {
+fn perform_action(address: &SocketAddrV4, method: &str, params: &str) -> Result<(), Error> {
     let mut stream = TcpStream::connect(address)?;
     let msg = format!(
         "{{\"id\":{},\"method\":\"{}\",\"params\":[{}]}}\r\n",
-        1, method, ""
+        1, method, params
     );
     stream.write(msg.as_bytes())?;
     Ok(())
@@ -148,6 +171,7 @@ pub struct WifiBulbCommand {
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct WifiBulb {
     pub id: i64,
+    pub name: String,
     pub address: SocketAddrV4,
     pub power: bool,
     pub bright: u8,
@@ -156,6 +180,7 @@ pub struct WifiBulb {
 
 pub fn parse(raw_string: &str) -> Option<WifiBulb> {
     let mut id_option = None;
+    let mut device_name_option = None;
     let mut address_option = None;
     let mut power_option = None;
     let mut bright_option = None;
@@ -182,6 +207,7 @@ pub fn parse(raw_string: &str) -> Option<WifiBulb> {
                     id_option = Some(result);
                 }
             }
+            "name" => device_name_option = Some(value),
             "location" => {
                 let address_string = value.replace("yeelight://", "");
                 if let Ok(result) = address_string.parse() {
@@ -202,8 +228,9 @@ pub fn parse(raw_string: &str) -> Option<WifiBulb> {
             _ => (),
         }
     }
-    if let (Some(id), Some(address), Some(power), Some(bright), Some(rgb)) = (
+    if let (Some(id), Some(device_name), Some(address), Some(power), Some(bright), Some(rgb)) = (
         id_option,
+        device_name_option,
         address_option,
         power_option,
         bright_option,
@@ -211,6 +238,7 @@ pub fn parse(raw_string: &str) -> Option<WifiBulb> {
     ) {
         Some(WifiBulb {
             id: id,
+            name: device_name.into(),
             address: address,
             power: power,
             bright: bright,
@@ -251,6 +279,7 @@ mod tests {
             parse(raw_response),
             Some(WifiBulb {
                 id: 133890191,
+                name: "".into(),
                 address: SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 56), 55443),
                 power: false,
                 bright: 99u8,

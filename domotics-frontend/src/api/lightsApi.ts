@@ -2,6 +2,7 @@ import { BACKEND_BASE_URL } from "../config";
 
 export interface Light {
     id: number;
+    name: string;
     address: string;
     power: boolean;
     bright: number;
