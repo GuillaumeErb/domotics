@@ -17,19 +17,20 @@ function App() {
 
   return (
     <div className="App">
-      <div className="sidebar">
-        <a className="active" href="#home">Lights</a>
-        <a href="#empty">Empty</a>
-      </div>
       <header className="App-header">
-        <button onClick={() => {
-          getAllLightsAsync({ refresh: true }).then(lights =>
-            setLights(lights))
-        }}>Refresh</button>
+        <button
+          className="button"
+          onClick={() => {
+            getAllLightsAsync({ refresh: true }).then(lights =>
+              setLights(lights))
+          }}>Refresh</button>
         {
           lights.map(light => {
             console.log("looping through light");
-            return <button onClick={() => toggleLight(light.id)} key={light.id}>Toggle</button>;
+            return <button
+              className="button"
+              onClick={() => toggleLight(light.id)}
+              key={light.id}>{light.name}</button>;
           }
           )
         }

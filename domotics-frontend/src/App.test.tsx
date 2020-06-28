@@ -4,6 +4,6 @@ import App from './App';
 
 test('basic test', () => {
   const { getByText } = render(<App />);
-  const light = getByText(/Lights/i);
+  const light = getByText(/Refresh/i);
   expect(light).toBeInTheDocument();
 });

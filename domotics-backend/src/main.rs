@@ -13,7 +13,8 @@ mod frontend;
 mod lights;
 
 fn make_cors() -> Cors {
-    let allowed_origins = AllowedOrigins::some_exact(&["http://localhost:3000"]);
+    let allowed_origins =
+        AllowedOrigins::some_exact(&["http://localhost:3000", "http://localhost:8000"]);
 
     CorsOptions {
         allowed_origins,
@@ -55,7 +56,12 @@ fn main() {
     rocket::ignite()
         .mount(
             "/lights",
-            routes![lights::get_all, lights::get_one, lights::toggle],
+            routes![
+                lights::get_all,
+                lights::get_one,
+                lights::toggle,
+                lights::set_name
+            ],
         )
         .mount("/", routes![frontend::index, frontend::file])
         .attach(make_cors())
