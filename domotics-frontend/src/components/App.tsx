@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
-import { toggleLight, getAllLightsAsync, Light } from './api/lightsApi';
+import { toggleLight, getAllLightsAsync, Light } from '../api/lightsApi';
 
-function App() {
+const App = () => {
 
   const [lights, setLights] = useState<Light[]>([]);
 
@@ -13,7 +13,7 @@ function App() {
     });
   }, []);
 
-  console.log("light" + lights.length);
+  console.log("light " + lights.length);
 
   return (
     <div className="App">
@@ -21,21 +21,30 @@ function App() {
         <button
           className="button"
           onClick={() => {
-            getAllLightsAsync({ refresh: true }).then(lights =>
-              setLights(lights))
+            getAllLightsAsync({ refresh: true }).then(setLights)
           }}>Refresh</button>
         {
           lights.map(light => {
             console.log("looping through light");
-            return <button
+            return <div
               className="button"
               onClick={() => toggleLight(light.id)}
-              key={light.id}>{light.name}</button>;
+              key={light.id}>{buttonContent(light)}</div>;
           }
           )
         }
       </header>
     </div >
+  );
+}
+
+const buttonContent = (light: Light): JSX.Element => {
+  return (
+    <div>
+      <div className="button-content-left">{light.name}</div>
+      <div className="button-content-right"
+        id={light.power ? "on-indicator" : "off-indicator"} />
+    </div>
   );
 }
 
