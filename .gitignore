@@ -1,2 +1,4 @@
 .DS_Store
 artifact
+*/node_modules/*
+*/dist/*
