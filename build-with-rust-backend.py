@@ -17,7 +17,7 @@ subprocess.run(["cargo", "build", "--release"],
                cwd="domotics-backend")
 
 print(colors.BOLD + colors.PURPLE + "➡️  Building frontend ..." + colors.ENDC)
-subprocess.run(["yarn", "build"],
+subprocess.run(["npm", "run", "build"],
                cwd="domotics-frontend")
 
 print(colors.BOLD + colors.PURPLE + "➡️  Creating artifact ..." + colors.ENDC)
