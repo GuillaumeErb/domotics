@@ -55,7 +55,7 @@ fn main() {
 
     rocket::ignite()
         .mount(
-            "/lights",
+            "/api/lights",
             routes![
                 lights::get_all,
                 lights::get_one,

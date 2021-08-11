@@ -15,7 +15,7 @@ export interface GetAllLightsOptions {
 }
 
 export const getAllLightsAsync = async (options?: GetAllLightsOptions): Promise<Light[]> => {
-    var url = `${BACKEND_BASE_URL}/lights`;
+    var url = `${BACKEND_BASE_URL}/api/lights`;
     if (options?.refresh) {
         url += "?refresh=true"
     }
@@ -24,5 +24,5 @@ export const getAllLightsAsync = async (options?: GetAllLightsOptions): Promise<
 }
 
 export const toggleLight = async (id: number): Promise<void> => {
-    await fetch(`${BACKEND_BASE_URL}/lights/${id}/toggle`);
+    await fetch(`${BACKEND_BASE_URL}/api/lights/${id}/toggle`);
 }
